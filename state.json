@@ -1,1 +1,1 @@
-{"schema":2,"contract":"0x5c8426a122bf473a068e6d9dd5d2d624cbf958f9","chain_id":20181205,"start_block":0,"next_block":50,"next_log_block":20000,"next_trace_block":0,"last_block_hash":"0x1492ee6b3fe72e586a13c2b6b8037f77b9e4881b22e9c950b02170252fea0b2c","addresses":[],"log_span":5000}
+{"schema":2,"contract":"0x5c8426a122bf473a068e6d9dd5d2d624cbf958f9","chain_id":20181205,"start_block":0,"next_block":250,"next_log_block":50000,"next_trace_block":0,"last_block_hash":"0x6e3d9d25d08424deeb9b464566a61a08558f4e07daa62df98b5b227b8197c592","addresses":[],"log_span":5000}
