@@ -91,7 +91,7 @@ jobs:
           if state_path.exists():
               s=json.loads(state_path.read_text())
               # First run previously scanned only genesis blocks before auto-detection was added.
-              if s.get('start_block')==0 and s.get('next_block',0)<=100 and not s.get('addresses'):
+              if s.get('start_block')==0 and s.get('next_block',0)<=1000000 and not s.get('addresses') and deployment>0:
                   s.update(start_block=deployment,next_block=deployment,next_log_block=deployment,next_trace_block=deployment,last_block_hash=None)
                   tmp=state_path.with_suffix('.tmp');tmp.write_text(json.dumps(s,separators=(',',':')));tmp.replace(state_path)
                   print('Moved empty genesis checkpoint to deployment block.')
