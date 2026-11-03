@@ -1,0 +1,5 @@
+.luc-data/
+_site/
+__pycache__/
+*.pyc
+.env

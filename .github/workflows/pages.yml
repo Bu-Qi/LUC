@@ -1,39 +1,108 @@
-name: Deploy QKI dashboard to GitHub Pages
-
+name: LUC power index and Pages
 on:
   push:
     branches: [main]
+  schedule:
+    - cron: '7,22,37,52 * * * *'
   workflow_dispatch:
-
+    inputs:
+      scan_seconds:
+        description: 'Scan budget in seconds (5-1200)'
+        default: '480'
+        required: false
+        type: string
 permissions:
   contents: read
-  pages: write
-  id-token: write
-
 concurrency:
-  group: pages
-  cancel-in-progress: true
-
+  group: luc-index-and-pages
+  cancel-in-progress: false
 jobs:
-  build:
+  index:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
-      - name: Configure Pages
-        uses: actions/configure-pages@v5
+      - uses: actions/setup-python@v5
         with:
-          enablement: true
-      - name: Upload static site
-        uses: actions/upload-pages-artifact@v3
+          python-version: '3.12'
+      - name: Test indexer and frontend
+        run: |
+          python -m unittest discover -s tests -p 'test_*.py' -v
+          node tests/frontend.cjs
+          node --check assets/app.js
+      - name: Restore persistent index
+        id: restore
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote_ref=$(git ls-remote --heads origin refs/heads/luc-data)
+          if [ -n "$remote_ref" ]; then
+            git fetch --no-tags origin luc-data
+            git worktree add --detach .luc-data FETCH_HEAD
+            git -C .luc-data switch -c luc-data
+          else
+            git worktree add --detach .luc-data HEAD
+            git -C .luc-data switch --orphan luc-data
+          fi
+      - name: Scan blocks and read LUC power
+        id: scan
+        continue-on-error: true
+        env:
+          QKI_RPC_URLS: ${{ secrets.QKI_RPC_URLS || vars.QKI_RPC_URLS }}
+          LUC_START_BLOCK: ${{ vars.LUC_START_BLOCK || '0' }}
+          LUC_TRACE: ${{ vars.LUC_TRACE || '0' }}
+          SCAN_SECONDS: ${{ inputs.scan_seconds || (github.event_name == 'push' && '60' || '480') }}
+        run: python scripts/index_power.py --state-dir .luc-data --seconds "$SCAN_SECONDS"
+      - name: Save checkpoint and snapshot
+        if: always() && steps.restore.outcome == 'success'
+        run: |
+          set -eu
+          git -C .luc-data config user.name 'github-actions[bot]'
+          git -C .luc-data config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if [ -f .luc-data/state.json ]; then git -C .luc-data add state.json; fi
+          if [ -d .luc-data/public ]; then git -C .luc-data add public; fi
+          if ! git -C .luc-data diff --cached --quiet; then
+            git -C .luc-data commit -m 'Update LUC scan checkpoint and power snapshot'
+            git -C .luc-data push origin HEAD:refs/heads/luc-data
+          fi
+      - name: Build static site
+        run: |
+          mkdir -p _site/assets _site/data
+          cp index.html _site/index.html
+          cp assets/app.js assets/style.css _site/assets/
+          touch _site/.nojekyll
+          if [ -d .luc-data/public ]; then cp -a .luc-data/public/. _site/data/; fi
+      - name: Publish run summary
+        if: always() && steps.restore.outcome == 'success'
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          p = Path('.luc-data/public/status.json')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
+              f.write('## LUC indexer\n\n')
+              if p.exists():
+                  s = json.loads(p.read_text())
+                  f.write('```json\n' + json.dumps(s, indent=2) + '\n```\n')
+              f.write('\nThe leaderboard is partial until power totals reconcile.\n')
+          PY
+      - uses: actions/upload-pages-artifact@v3
         with:
-          path: .
+          path: _site
   deploy:
+    needs: index
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
-    needs: build
     steps:
-      - name: Deploy to GitHub Pages
+      - name: Configure Pages (must be enabled in repository settings)
+        uses: actions/configure-pages@v5
+      - name: Deploy static dashboard
         id: deployment
         uses: actions/deploy-pages@v4

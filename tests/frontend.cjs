@@ -1,0 +1,16 @@
+const assert=require('node:assert/strict');
+const {units,percent,csv,validate}=require('../assets/app.js');
+assert.equal(units('1234567'),'1,234.567');
+assert.equal(units('-5'),'-0.005');
+assert.equal(units('9007199254740993123',false),'9007199254740993.123');
+assert.equal(percent('1','0'),'--');
+assert.equal(percent('1','1000000000'),'<0.001%');
+assert.equal(percent('1','4'),'25.000%');
+const d={schema:2,contract:'0x5c8426a122bf473a068e6d9dd5d2d624cbf958f9',chain_id:20181205,decimals:3,total_power_raw:'9007199254740993123',indexed_power_raw:'9007199254740993123',gap_raw:'0',power_reconciled:true,block_number:123,block_hash:'0xabc',rows:[{rank:1,address:'0x'+'1'.repeat(40),power_raw:'9007199254740993123'}]};
+assert.equal(validate(d),d);
+assert.throws(()=>validate({...d,chain_id:1}));
+assert.throws(()=>validate({...d,gap_raw:'1'}));
+assert.throws(()=>validate({...d,rows:[{rank:1,address:'<script>',power_raw:'1'}]}));
+assert.ok(csv(d).includes('9007199254740993.123'));
+assert.ok(csv(d).includes('123,0xabc'));
+console.log('12 frontend assertions passed');
