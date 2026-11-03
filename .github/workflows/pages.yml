@@ -46,6 +46,60 @@ jobs:
             git worktree add --detach .luc-data HEAD
             git -C .luc-data switch --orphan luc-data
           fi
+      - name: Find contract deployment block
+        env:
+          QKI_RPC_URLS: ${{ secrets.QKI_RPC_URLS || vars.QKI_RPC_URLS }}
+          LUC_START_BLOCK: ${{ vars.LUC_START_BLOCK || '0' }}
+        run: |
+          python - <<'PY'
+          import json, os, re, time, urllib.request
+          from pathlib import Path
+          contract = '0x5c8426a122bf473a068e6d9dd5d2d624cbf958f9'
+          urls = [x for x in re.split(r'[\\s,;]+', os.getenv('QKI_RPC_URLS','').strip()) if x]
+          if not urls:
+              urls = [f'https://rpc{i}.{d}' for d in ('qkirpc.org','qkiscan.io') for i in (1,2,3)]
+          def rpc(url, method, params):
+              req=urllib.request.Request(url,data=json.dumps({'jsonrpc':'2.0','id':1,'method':method,'params':params}).encode(),headers={'Content-Type':'application/json','User-Agent':'LUC-Power-Indexer'})
+              with urllib.request.urlopen(req,timeout=10) as r: obj=json.load(r)
+              if 'error' in obj or 'result' not in obj: raise RuntimeError('RPC error')
+              return obj['result']
+          deployment = None
+          for url in urls:
+              try:
+                  if int(rpc(url,'eth_chainId',[]),16)!=20181205: continue
+                  head=int(rpc(url,'eth_blockNumber',[]),16)
+                  if rpc(url,'eth_getCode',[contract,'0x0']) not in ('0x','0x0'): 
+                      deployment=0
+                  else:
+                      lo,hi=0,head
+                      if rpc(url,'eth_getCode',[contract,hex(hi)]) in ('0x','0x0'): raise RuntimeError('Contract bytecode unavailable at head')
+                      while lo+1<hi:
+                          mid=(lo+hi)//2
+                          code=rpc(url,'eth_getCode',[contract,hex(mid)])
+                          if code in ('0x','0x0'): lo=mid
+                          else: hi=mid
+                      deployment=hi
+                  print(f'Contract deployment block: {deployment} (RPC host only: {url.split("/")[2]})')
+                  break
+              except Exception as e:
+                  print(f'RPC candidate failed: {type(e).__name__}')
+          if deployment is None:
+              override=int(os.getenv('LUC_START_BLOCK','0'))
+              print(f'Could not auto-detect deployment block; using configured start block {override}')
+              deployment=override
+          state_path=Path('.luc-data/state.json')
+          if state_path.exists():
+              s=json.loads(state_path.read_text())
+              # First run previously scanned only genesis blocks before auto-detection was added.
+              if s.get('start_block')==0 and s.get('next_block',0)<=100 and not s.get('addresses'):
+                  s.update(start_block=deployment,next_block=deployment,next_log_block=deployment,next_trace_block=deployment,last_block_hash=None)
+                  tmp=state_path.with_suffix('.tmp');tmp.write_text(json.dumps(s,separators=(',',':')));tmp.replace(state_path)
+                  print('Moved empty genesis checkpoint to deployment block.')
+              else:
+                  deployment=s.get('start_block',deployment)
+                  print('Resuming existing saved checkpoint; start block remains '+str(deployment))
+          with open(os.environ['GITHUB_ENV'],'a') as f: f.write('LUC_START_BLOCK='+str(deployment)+'\\n')
+          PY
       - name: Scan blocks and read LUC power
         id: scan
         continue-on-error: true
