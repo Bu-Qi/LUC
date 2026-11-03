@@ -5,7 +5,7 @@ Contract: `0x5c8426a122Bf473a068e6D9Dd5d2D624CbF958f9`; chain ID `20181205`; pow
 
 ## Automatic address discovery
 
-1. Scan every full block from **block 0**. Collect senders of transactions to LUC and known address arguments; supplement with this contract's Transfer/Minted logs.
+1. Auto-detect the contract deployment block using historical `eth_getCode` binary search (or use `LUC_START_BLOCK` as a verified override), then scan every full block from that height. Collect senders of transactions to LUC and known address arguments; supplement with this contract's Transfer/Minted logs.
 2. Deduplicate addresses and call `power(address)` for every candidate at one fixed block.
 3. Exclude zero-power entries, sort by exact integer power, and use shared ranks for ties (1, 1, 3).
 4. Reconcile the sum against `totalPower` at that same block and publish JSON for the static Pages site.
